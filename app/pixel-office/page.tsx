@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { OfficeState, type GatewaySreState } from '@/lib/pixel-office/engine/officeState'
 import { renderFrame } from '@/lib/pixel-office/engine/renderer'
 import { buildGatewayUrl } from "@/lib/gateway-url"
@@ -51,6 +51,130 @@ function formatMs(ms: number): string {
   if (!ms) return '-'
   if (ms < 1000) return ms + 'ms'
   return (ms / 1000).toFixed(1) + 's'
+}
+
+// Morse Code Component với âm thanh local
+// Morse Code Component với âm thanh local (Real-time Morse Sound)
+function MorseCodeComponent({ morsePlaintext, setMorsePlaintext, morseResult, setMorseResult }: {
+  morsePlaintext: string
+  setMorsePlaintext: React.Dispatch<React.SetStateAction<string>>
+  morseResult: string
+  setMorseResult: React.Dispatch<React.SetStateAction<string>>
+}) {
+  const audioCtxRef = useRef<AudioContext | null>(null)
+
+  // Hàm phát âm thanh Morse chuẩn
+  const playMorseTone = useCallback((char: string) => {
+    try {
+      // Khởi tạo AudioContext nếu chưa có (vượt policy của trình duyệt)
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+        audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      }
+      
+      const ctx = audioCtxRef.current
+      if (ctx.state === 'suspended') {
+        ctx.resume()
+      }
+
+      const oscillator = ctx.createOscillator()
+      const gainNode = ctx.createGain()
+
+      // Tần số 600Hz nghe êm tai, chuẩn tín hiệu Morse
+      oscillator.frequency.value = 600
+      oscillator.type = 'sine'
+
+      // . (dot) dài 80ms, - (dash) dài gấp 3 lần (240ms)
+      const dotDuration = 0.08
+      const duration = char === '.' ? dotDuration : dotDuration * 3
+
+      // Dùng linearRamp để Fade-in/Fade-out 10ms (chống tiếng lụp bụp/click ở loa)
+      const now = ctx.currentTime
+      gainNode.gain.setValueAtTime(0, now)
+      gainNode.gain.linearRampToValueAtTime(1, now + 0.01)
+      gainNode.gain.setValueAtTime(1, now + duration - 0.01)
+      gainNode.gain.linearRampToValueAtTime(0, now + duration)
+
+      oscillator.connect(gainNode)
+      gainNode.connect(ctx.destination)
+
+      oscillator.start(now)
+      oscillator.stop(now + duration)
+    } catch (e) {
+      console.error('Audio error:', e)
+    }
+  }, [])
+
+  // Dọn dẹp bộ nhớ Audio khi tắt Component
+  useEffect(() => {
+    return () => {
+      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        audioCtxRef.current.close()
+        audioCtxRef.current = null
+      }
+    }
+  }, [])
+
+  // Bắt sự kiện gõ phím NGAY LẬP TỨC trên ô input
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.repeat) return // Chặn phát liên tục nếu giữ lỳ phím
+    
+    if (e.key === '.') {
+      unlockAudio() // Gọi hàm từ thư viện của bạn để chắc chắn audio được cấp quyền
+      playMorseTone('.')
+    } else if (e.key === '-') {
+      unlockAudio()
+      playMorseTone('-')
+    }
+  }
+
+  const morseCode: Record<string, string> = {
+    'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
+    'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
+    'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
+    'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+    'Y': '-.--', 'Z': '--..',
+    '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
+    '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.',
+    ' ': ' '
+  }
+
+  const handleSubmit = () => {
+    console.log('Morse Plaintext:', morsePlaintext)
+    if (morsePlaintext) {
+      const result = morsePlaintext.toUpperCase().split('').map(c => morseCode[c] || c).join(' ')
+      setMorseResult(result)
+    }
+  }
+
+  return (
+    <div className="mt-[2%] flex flex-col gap-3">
+      <div className="relative w-full" style={{ height: 'clamp(28px, 4vw, 40px)', backgroundImage: "url('/assets/pixel-office/button_06.png')", backgroundSize: '100% 100%', backgroundPosition: 'center' }}>
+        <input
+          value={morsePlaintext}
+          onChange={(event) => setMorsePlaintext(event.target.value)}
+          onKeyDown={handleInputKeyDown} // <-- Thêm sự kiện bắt âm thanh tại đây
+          placeholder="Nhập . hoặc - để tạo tín hiệu morse..."
+          className="absolute inset-0 w-full h-full border-0 bg-transparent px-[3%] text-[clamp(9px,0.9vw,14px)] text-[#2d4e79] outline-none placeholder:text-[#5a7a9a]"
+          autoComplete="off"
+        />
+      </div>
+      <div className="w-1/3 mx-auto">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          className="relative w-full"
+          style={{ height: 'clamp(28px, 4vw, 40px)', backgroundImage: "url('/assets/pixel-office/button_03.png')", backgroundSize: '100% 100%', backgroundPosition: 'center' }}
+        >
+          <span className="text-white text-[clamp(9px,1vw,14px)] font-bold">Submit</span>
+        </button>
+      </div>
+      {morseResult && (
+        <div className="p-[3%] bg-white/30 rounded text-[#233f66] text-[clamp(8px,0.85vw,13px)] break-words">
+          {morseResult}
+        </div>
+      )}
+    </div>
+  )
 }
 
 type ReleaseInfo = {
@@ -3155,50 +3279,7 @@ batman`)
 
                         {/* Tạo mã morse */}
                         {droppedGameplaySkill === 'Tạo mã morse' && (
-                          <div className="mt-[2%] flex flex-col gap-3">
-                            {/* Input bản rõ */}
-                            <div className="relative w-full" style={{ height: 'clamp(28px, 4vw, 40px)', backgroundImage: "url('/assets/pixel-office/button_06.png')", backgroundSize: '100% 100%', backgroundPosition: 'center' }}>
-                              <input
-                                value={morsePlaintext}
-                                onChange={(event) => setMorsePlaintext(event.target.value)}
-                                placeholder="Nhập bản rõ..."
-                                className="absolute inset-0 w-full h-full border-0 bg-transparent px-[3%] text-[clamp(9px,0.9vw,14px)] text-[#2d4e79] outline-none placeholder:text-[#5a7a9a]"
-                              />
-                            </div>
-                            {/* Submit button */}
-                            <div className="w-1/3 mx-auto">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  console.log('Morse Plaintext:', morsePlaintext)
-                                  if (morsePlaintext) {
-                                    // Simple Morse code conversion
-                                    const morseCode: Record<string, string> = {
-                                      'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
-                                      'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
-                                      'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
-                                      'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
-                                      'Y': '-.--', 'Z': '--..',
-                                      '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
-                                      '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.',
-                                      ' ': ' '
-                                    }
-                                    const result = morsePlaintext.toUpperCase().split('').map(c => morseCode[c] || c).join(' ')
-                                    setMorseResult(result)
-                                  }
-                                }}
-                                className="relative w-full"
-                                style={{ height: 'clamp(28px, 4vw, 40px)', backgroundImage: "url('/assets/pixel-office/button_03.png')", backgroundSize: '100% 100%', backgroundPosition: 'center' }}
-                              >
-                                <span className="text-white text-[clamp(9px,1vw,14px)] font-bold">Submit</span>
-                              </button>
-                            </div>
-                            {morseResult && (
-                              <div className="p-[3%] bg-white/30 rounded text-[#233f66] text-[clamp(8px,0.85vw,13px)] break-words">
-                                {morseResult}
-                              </div>
-                            )}
-                          </div>
+                          <MorseCodeComponent morsePlaintext={morsePlaintext} setMorsePlaintext={setMorsePlaintext} morseResult={morseResult} setMorseResult={setMorseResult} />
                         )}
 
                         {/* Dò tìm mật khẩu online */}
